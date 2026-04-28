@@ -106,8 +106,8 @@ elif st.session_state.step == "render":
     pipeline = [
         ("Engineering prompts", PromptEngineerAgent()),
         ("Generating images", VisualGenerationAgent()),
-        ("Animating scenes", AnimationAgent()),
         ("Recording voice-over", VoiceOverAgent()),
+        ("Animating scenes", AnimationAgent()),
         ("Selecting music", MusicAgent()),
         ("Rendering scenes", RenderingAgent()),
         ("Stitching final video", FinalStitchingAgent()),

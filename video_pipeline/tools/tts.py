@@ -1,8 +1,15 @@
 """
 Text-to-speech tool. Tries ElevenLabs first, falls back to Coqui TTS.
+
+The cache key includes the text + emotion + provider, and the cached file
+keeps its native extension (.mp3 for ElevenLabs, .wav for Coqui) so a cache
+hit returns a path that actually exists. The downstream merge_audio_video
+in tools/video_utils.py accepts either format.
 """
 import logging
 import hashlib
+import wave
+import contextlib
 from pathlib import Path
 from typing import Optional
 from config import config
@@ -44,21 +51,27 @@ class TTSEngine:
         cache: bool = True,
     ) -> Path:
         """Generate speech audio and return the file path."""
+        # Pick the provider up front so the cache key matches the file extension.
+        provider = config.TTS_PROVIDER
+        use_eleven = provider == "elevenlabs" and config.ELEVENLABS_API_KEY
+        ext = "mp3" if use_eleven else "wav"
+
         if cache:
-            key = hashlib.sha256(f"{text}{emotion}".encode()).hexdigest()[:16]
-            cache_path = config.CACHE_DIR / f"tts_{key}.mp3"
+            key = hashlib.sha256(f"{provider}|{text}|{emotion}".encode()).hexdigest()[:16]
+            cache_path = config.CACHE_DIR / f"tts_{key}.{ext}"
             if cache_path.exists():
                 logger.info(f"TTS cache hit: {cache_path.name}")
                 return cache_path
             output_path = cache_path
 
-        provider = config.TTS_PROVIDER
-        if provider == "elevenlabs" and config.ELEVENLABS_API_KEY:
+        if use_eleven:
             try:
                 return self._synth_elevenlabs(text, output_path)
             except Exception as e:
                 logger.warning(f"ElevenLabs failed ({e}), falling back to Coqui.")
-                return self._synth_coqui(text, output_path)
+                # Coqui produces .wav — adjust path so the file exists at the
+                # extension we return.
+                return self._synth_coqui(text, output_path.with_suffix(".wav"))
         return self._synth_coqui(text, output_path)
 
     def _synth_elevenlabs(self, text: str, output_path: Path) -> Path:
@@ -78,7 +91,6 @@ class TTSEngine:
 
     def _synth_coqui(self, text: str, output_path: Path) -> Path:
         self._load_coqui()
-        # Coqui outputs WAV; we save as wav and rename or convert
         wav_path = output_path.with_suffix(".wav")
         self._coqui.tts_to_file(text=text, file_path=str(wav_path))
         logger.info(f"Coqui audio saved: {wav_path.name}")
@@ -92,3 +104,23 @@ def get_tts() -> TTSEngine:
     if _singleton is None:
         _singleton = TTSEngine()
     return _singleton
+
+
+def get_audio_duration(path: Path) -> float:
+    """Return audio length in seconds. Falls back to MoviePy if not a WAV."""
+    p = Path(path)
+    if p.suffix.lower() == ".wav":
+        try:
+            with contextlib.closing(wave.open(str(p), "rb")) as f:
+                frames = f.getnframes()
+                rate = f.getframerate()
+                return frames / float(rate)
+        except Exception:
+            pass
+    # Fallback: pull duration via MoviePy (handles mp3/m4a/etc).
+    from moviepy.editor import AudioFileClip
+    clip = AudioFileClip(str(p))
+    try:
+        return float(clip.duration)
+    finally:
+        clip.close()
