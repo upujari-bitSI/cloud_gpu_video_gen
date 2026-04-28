@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+venv/
+.venv/
+env/
+
+# Environment
+.env
+.env.local
+
+# Pipeline outputs (generated artifacts, not source)
+video_pipeline/outputs/
+video_pipeline/assets/music/*.mp3
+video_pipeline/assets/characters/*
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
