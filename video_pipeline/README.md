@@ -125,62 +125,93 @@ Pipeline output:
 
 This pipeline needs a GPU for SDXL image generation. CPU works but is ~50× slower.
 
-**Hardware target:** any GPU with **≥16 GB VRAM** runs SDXL comfortably. RTX 4090 (24 GB), A100 (40/80 GB), L40 (40 GB), and RTX 3090 (24 GB) are all great. RTX 5090 is overkill. Anything below 16 GB needs SDXL-Turbo or a smaller model.
+The defaults (in `config.py`) are tuned for an **8 GB VRAM** GPU using
+DreamShaper-XL Turbo (4–8 inference steps), CPU offload, and 1280×720 output.
+Set `LOW_VRAM_MODE=false` and bump `IMAGE_WIDTH/HEIGHT` to 1920×1080 if you
+have ≥16 GB.
 
-**Cheapest providers right now (April 2026):**
+### Cheapest providers (snapshot — always check live prices)
 
-| Provider | RTX 4090 | A100 80 GB | H100 80 GB | Notes |
-|----------|----------|------------|------------|-------|
-| **Vast.ai** | ~$0.16–0.35/hr | ~$0.67/hr | ~$1.49–1.87/hr | Cheapest. Marketplace — instances can disappear. |
-| **RunPod (Community)** | ~$0.34/hr | ~$0.79/hr | ~$1.99/hr | Best balance of cheap + reliable. Pre-built SDXL templates. |
-| **Clore.ai / TensorDock** | ~$0.10–0.30/hr | ~$0.75/hr | ~$1.80/hr | Newer P2P platforms, very low fees. |
-| **Lambda Labs** | n/a | $1.10/hr (40 GB) | $2.49–$2.99/hr | Zero egress fees — good if your output is large. |
-| **Paperspace / Hyperstack** | mid-tier | mid-tier | mid-tier | Easier UX, slightly pricier. |
-| AWS / GCP / Azure | — | $4+/hr | $3.90+/hr | Avoid unless you need their ecosystem. |
+| Provider | RTX 3060 12 GB | RTX 4060 Ti 16 GB | RTX A4000 16 GB | RTX 4090 24 GB | Notes |
+|---|---|---|---|---|---|
+| **Vast.ai** | ~$0.08–0.15/hr | ~$0.18–0.25/hr | ~$0.20–0.30/hr | ~$0.20–0.40/hr | Cheapest, marketplace, instances can disappear |
+| **RunPod (Community)** | n/a | n/a | ~$0.17–0.32/hr | ~$0.34–0.69/hr | Reliable, pre-built PyTorch/SD templates |
+| **TensorDock** | ~$0.10/hr | ~$0.20/hr | ~$0.25/hr | ~$0.35/hr | Hourly + spot, no commitment |
+| **Lambda Labs** | n/a | n/a | n/a | n/a | A10/A100 only, zero egress |
 
-(Pricing snapshot from Vast.ai, RunPod, Spheron, IntuitionLabs, and Northflank market trackers as of April 2026 — rates fluctuate daily, always check live before booking.)
+**Note on RTX 4060**: the consumer 4060 (8 GB) is rare on cloud GPU
+marketplaces. The closest equivalents you'll actually find listed are:
+- **RTX 3060 12 GB** on Vast.ai (~$0.10/hr) — perfect for this pipeline
+- **RTX A4000 16 GB** on RunPod (~$0.20/hr) — most reliable cheap option
+- **RTX 4060 Ti 16 GB** on Vast.ai (~$0.20/hr) — when available
 
-### My recommendation
+### My recommendation: RunPod RTX A4000 (16 GB) at ~$0.20/hr
 
-**For this pipeline → RunPod Community Cloud, RTX 4090, ~$0.34/hr.** Here's why:
+For this pipeline, **RunPod Community RTX A4000 (16 GB)** at ~$0.20/hr is the
+sweet spot: enough VRAM to run SDXL at 1280×720 with no offload (faster
+inference), pre-built PyTorch templates, persistent volumes for the SDXL
+weights, per-second billing.
 
-1. **One-click SDXL templates** — pick "Stable Diffusion" or "PyTorch 2.x" and CUDA + drivers are already there.
-2. **Per-second billing** — pay only for the ~10–20 minutes a full pipeline run takes.
-3. **24 GB VRAM** — plenty for SDXL 1080×1920 at 30 steps.
-4. **Volume mounts** — keep your model cache between sessions (HuggingFace downloads are slow).
+Cheaper alternatives if you want to squeeze more:
+- **Vast.ai RTX 3060 12 GB at ~$0.10/hr** with `LOW_VRAM_MODE=true` (default).
+  Slightly slower per image but ~half the cost. Spot-priced instances on
+  Vast.ai dip to $0.06/hr.
+- **TensorDock RTX A4000 spot** at ~$0.15/hr — second-cheapest reliable option.
 
-Estimated cost per video generated: **about $0.10–0.20** (10–30 minutes of GPU time per ~6-scene video).
+Avoid AWS/GCP/Azure for this — they charge 5–10× more for equivalent GPUs.
+
+### Estimated cost per 5-minute video (~30 scenes)
+
+| GPU | Per-image | Per video (GPU) | Claude API | **Total** |
+|---|---|---|---|---|
+| RTX 3060 12 GB (LOW_VRAM) | ~6s | ~3 min → $0.005 | ~$0.15 | **~$0.16** |
+| RTX A4000 16 GB | ~3s | ~1.5 min → $0.005 | ~$0.15 | **~$0.16** |
+| RTX 4090 24 GB | ~1.5s | ~45s → $0.005 | ~$0.15 | **~$0.16** |
+
+Claude API dominates the cost — most of the savings come from prompt caching
+and using Sonnet/Haiku (already on by default). The GPU bill is rounding
+error if you spin the pod down between runs.
 
 ### Quick start on RunPod
 
 ```bash
-# 1. On RunPod: deploy a Pod
+# 1. RunPod: deploy a Pod
 #    Template: "RunPod PyTorch 2.4"
-#    GPU: RTX 4090 (24 GB) — Community Cloud
+#    GPU: RTX A4000 (16 GB) — Community Cloud, ~$0.20/hr
 #    Volume: 50 GB persistent (for HF model cache)
 
-# 2. SSH in or open the web terminal
+# 2. Web terminal:
 git clone <your-repo> && cd video_pipeline
-
-# 3. Install
 apt-get update && apt-get install -y ffmpeg
 pip install -r requirements.txt
 
-# 4. Set env
+# 3. Env
 export ANTHROPIC_API_KEY=sk-ant-...
 export USE_GPU=true
+export STYLE_PRESET=cocomelon            # cocomelon | cinematic | anime
+export TARGET_DURATION_SECONDS=300       # 5-minute video
+export LOW_VRAM_MODE=true                # leave true for ≤16 GB GPUs
+# export LLM_MODEL=claude-sonnet-4-6     # default; opus is overkill
+# export LLM_FAST_MODEL=claude-haiku-4-5-20251001   # for prompt-eng
 
-# 5. Run
-python main.py --niche "AI replacing jobs story" --no-approval
+# 4. Run
+python main.py --niche "a curious bunny who learns to share" --no-approval
 ```
 
 ### Cost-saving tips
 
-- **Use spot/interruptible instances** on Vast.ai or Spheron — 40-60% cheaper if your run is short and resumable.
-- **Cache the SDXL model** to a persistent volume — first download is ~7 GB.
-- **Lower resolution** during testing (`IMAGE_WIDTH=1024, IMAGE_HEIGHT=576` in config.py) to iterate faster.
-- **The pipeline caches images and TTS by prompt hash** — re-running the same niche barely uses the GPU.
-- Run with `--no-approval` for batch generation; use the Streamlit UI only when you actively want to refine characters.
+- **Spot / interruptible instances** on Vast.ai are 40–60% cheaper. The
+  pipeline caches images and TTS by prompt hash so an interrupted run
+  resumes near-free.
+- **Cache the SDXL model** to a persistent volume — DreamShaper-XL Turbo
+  is ~6 GB on first download.
+- **Anthropic prompt caching is on by default** (`ENABLE_PROMPT_CACHE=true`)
+  — saves ~90% on input tokens for repeated agent system prompts.
+- **PromptEngineer batches all scenes into one Haiku call** — 1 API call
+  per video instead of one per scene.
+- **Iterate at low res**: `IMAGE_WIDTH=768 IMAGE_HEIGHT=432` for fast drafts.
+- Use `--no-approval` for batch runs; use the Streamlit UI only when you
+  want to refine characters.
 
 ---
 

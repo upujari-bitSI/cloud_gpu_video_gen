@@ -20,7 +20,7 @@ def animate_image(
     Convert a static image into a short clip with camera motion (Ken Burns).
     motion options: zoom_in, zoom_out, pan_left, pan_right, parallax.
     """
-    from moviepy.editor import ImageClip, vfx
+    from moviepy.editor import ImageClip
 
     clip = ImageClip(str(image_path)).set_duration(duration)
     clip = clip.set_fps(config.VIDEO_FPS)
@@ -28,16 +28,14 @@ def animate_image(
     if motion == "zoom_in":
         clip = clip.resize(lambda t: 1 + 0.04 * t)
     elif motion == "zoom_out":
-        clip = clip.resize(lambda t: 1.2 - 0.04 * t)
+        clip = clip.resize(lambda t: max(1.0, 1.2 - 0.04 * t))
     elif motion == "pan_left":
-        w = clip.w
         clip = clip.set_position(lambda t: (-20 * t, 0))
         clip = clip.resize(1.1)
     elif motion == "pan_right":
         clip = clip.set_position(lambda t: (20 * t, 0))
         clip = clip.resize(1.1)
     elif motion == "parallax":
-        # Subtle zoom + slight pan combined
         clip = clip.resize(lambda t: 1 + 0.03 * t)
         clip = clip.set_position(lambda t: (5 * t, -3 * t))
 
@@ -60,18 +58,35 @@ def merge_audio_video(
     audio_path: Path,
     output_path: Path,
 ) -> Path:
-    """Combine a video clip with a voice-over audio file."""
+    """Combine a video clip with a voice-over audio file.
+
+    Critical fix vs. the original: if audio is longer than the video we
+    EXTEND the video by freezing its last frame instead of truncating the
+    narration mid-sentence. The animation agent already sized the clip to
+    the audio length + buffer, but this is a safety net.
+    """
     from moviepy.editor import VideoFileClip, AudioFileClip
+    from moviepy.video.fx.all import freeze
 
     video = VideoFileClip(str(video_path))
     audio = AudioFileClip(str(audio_path))
 
-    # Trim the longer one to match the shorter
-    duration = min(video.duration, audio.duration)
-    video = video.subclip(0, duration)
-    audio = audio.subclip(0, duration)
+    if audio.duration > video.duration + 0.05:
+        # Extend the video by freezing the last frame to match audio length.
+        extra = audio.duration - video.duration
+        try:
+            video = freeze(video, t=video.duration - 0.05, freeze_duration=extra + 0.1)
+        except Exception:
+            # Fallback: clamp audio to video. Loud cut, but preserves the file.
+            audio = audio.subclip(0, video.duration)
+    elif video.duration > audio.duration + 0.05:
+        # Audio shorter than video — keep the visual, pad audio with silence
+        # by trimming video to audio + small tail (so the voice always ends
+        # cleanly inside the clip).
+        video = video.subclip(0, min(video.duration, audio.duration + config.VOICE_END_PAD))
 
-    final = video.set_audio(audio)
+    duration = max(video.duration, audio.duration)
+    final = video.set_audio(audio).set_duration(duration)
     final.write_videofile(
         str(output_path),
         fps=config.VIDEO_FPS,
@@ -99,12 +114,8 @@ def stitch_clips(
         AudioFileClip, CompositeAudioClip,
     )
 
-    clips = []
-    for p in clip_paths:
-        c = VideoFileClip(str(p))
-        clips.append(c)
+    clips = [VideoFileClip(str(p)) for p in clip_paths]
 
-    # Apply crossfade transition between adjacent clips
     if transition_duration > 0 and len(clips) > 1:
         for i in range(1, len(clips)):
             clips[i] = clips[i].crossfadein(transition_duration)
@@ -112,11 +123,10 @@ def stitch_clips(
     else:
         final = concatenate_videoclips(clips, method="compose")
 
-    # Mix background music if provided
+    # Mix background music underneath narration.
     if music_path and Path(music_path).exists():
         try:
             music = AudioFileClip(str(music_path)).volumex(config.DEFAULT_MUSIC_VOLUME)
-            # Loop or trim music to match video length
             if music.duration < final.duration:
                 from moviepy.audio.fx.all import audio_loop
                 music = audio_loop(music, duration=final.duration)

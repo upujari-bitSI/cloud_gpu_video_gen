@@ -1,10 +1,15 @@
 """
 Voice Over Agent: generates narration audio for each scene.
+
+Critical sync step: after each TTS call we measure the actual audio length
+and write it back to scene.duration (clamped to [MIN, MAX]). The Animation
+agent that runs after this then sizes its Ken Burns clip to match the voice
+exactly, plus a small tail buffer so the last syllable never gets cut.
 """
 import asyncio
 from pathlib import Path
 from agents.base import BaseAgent
-from tools.tts import get_tts
+from tools.tts import get_tts, get_audio_duration
 from config import config
 
 
@@ -26,8 +31,25 @@ class VoiceOverAgent(BaseAgent):
                 tts.synthesize,
                 scene.narration,
                 out,
-                scene.mood,  # used for emotion
+                scene.mood,
             )
             scene.voice_path = str(path)
-            self.logger.info(f"Scene {scene.index} voice -> {Path(path).name}")
+
+            # Resize the scene to the actual narration length + tail buffer.
+            try:
+                audio_seconds = get_audio_duration(Path(path))
+                target = audio_seconds + config.VOICE_END_PAD
+                target = max(config.MIN_SCENE_DURATION,
+                             min(config.MAX_SCENE_DURATION, target))
+                scene.duration = round(target, 2)
+            except Exception as e:
+                self.logger.warning(
+                    f"Scene {scene.index}: could not measure audio duration ({e}); "
+                    f"keeping planned duration {scene.duration}s"
+                )
+
+            self.logger.info(
+                f"Scene {scene.index} voice -> {Path(path).name} "
+                f"(duration set to {scene.duration}s)"
+            )
         return state

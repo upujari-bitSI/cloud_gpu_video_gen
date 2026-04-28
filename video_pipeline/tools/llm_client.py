@@ -1,9 +1,15 @@
 """
 LLM client wrapper - supports Anthropic Claude and OpenAI.
 Provides one interface so agents don't care about the provider.
+
+Anthropic prompt caching is enabled when ENABLE_PROMPT_CACHE is set: the
+system block is marked `cache_control: ephemeral`, which on Claude 4.x cuts
+input cost by ~90% on repeated system prompts (every agent re-uses the same
+SYSTEM string across scenes).
 """
 import json
 import logging
+import re
 from typing import Optional
 from config import config
 
@@ -32,19 +38,40 @@ class LLMClient:
         else:
             raise ValueError(f"Unknown LLM provider: {self.provider}")
 
-    def complete(self, system: str, user: str, max_tokens: int = 4096) -> str:
-        """Send a completion request and return raw text."""
+    def complete(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 4096,
+        model: Optional[str] = None,
+    ) -> str:
+        """Send a completion request and return raw text.
+
+        `model` override lets simple agents (PromptEngineer) use the cheaper
+        LLM_FAST_MODEL instead of the default LLM_MODEL.
+        """
+        chosen_model = model or config.LLM_MODEL
         if self.provider == "anthropic":
+            # Cache the system prompt — it's the largest stable chunk and is
+            # repeated across every scene/character call from the same agent.
+            if config.ENABLE_PROMPT_CACHE:
+                system_param = [{
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }]
+            else:
+                system_param = system
             response = self._client.messages.create(
-                model=config.LLM_MODEL,
+                model=chosen_model,
                 max_tokens=max_tokens,
-                system=system,
+                system=system_param,
                 messages=[{"role": "user", "content": user}],
             )
             return response.content[0].text
         elif self.provider == "openai":
             response = self._client.chat.completions.create(
-                model=config.LLM_MODEL,
+                model=chosen_model,
                 max_tokens=max_tokens,
                 messages=[
                     {"role": "system", "content": system},
@@ -54,21 +81,46 @@ class LLMClient:
             return response.choices[0].message.content
         return ""
 
-    def complete_json(self, system: str, user: str, max_tokens: int = 4096) -> dict | list:
+    def complete_json(
+        self,
+        system: str,
+        user: str,
+        max_tokens: int = 4096,
+        model: Optional[str] = None,
+    ) -> dict | list:
         """Send a request and parse the response as JSON."""
-        # Append explicit JSON-only instruction
-        system_json = system + "\n\nIMPORTANT: Respond with ONLY valid JSON. No prose, no markdown fences, no preamble."
-        raw = self.complete(system_json, user, max_tokens)
-        # Strip common markdown fences if model adds them anyway
-        cleaned = raw.strip()
-        if cleaned.startswith("```"):
-            lines = cleaned.split("\n")
-            cleaned = "\n".join(lines[1:-1] if lines[-1].startswith("```") else lines[1:])
-        try:
-            return json.loads(cleaned)
-        except json.JSONDecodeError as e:
-            logger.error(f"JSON parse failed: {e}\nRaw output: {raw[:500]}")
-            raise
+        system_json = system + (
+            "\n\nIMPORTANT: Respond with ONLY valid JSON. "
+            "No prose, no markdown fences, no preamble."
+        )
+        raw = self.complete(system_json, user, max_tokens, model=model)
+        return _parse_json_lenient(raw)
+
+
+def _parse_json_lenient(raw: str) -> dict | list:
+    """Best-effort JSON extraction. Strips fences, finds first {...} or [...]."""
+    cleaned = raw.strip()
+    # Strip ```json ... ``` style fences
+    if cleaned.startswith("```"):
+        lines = cleaned.split("\n")
+        # drop first and (possibly) last fence lines
+        if lines[-1].startswith("```"):
+            lines = lines[1:-1]
+        else:
+            lines = lines[1:]
+        cleaned = "\n".join(lines)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError:
+        # Fall back: grab the first balanced JSON object/array via regex.
+        match = re.search(r"(\{.*\}|\[.*\])", cleaned, re.DOTALL)
+        if match:
+            try:
+                return json.loads(match.group(1))
+            except json.JSONDecodeError:
+                pass
+        logger.error(f"JSON parse failed. Raw output: {raw[:500]}")
+        raise
 
 
 # Lazy singleton

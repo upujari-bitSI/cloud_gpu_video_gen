@@ -23,15 +23,18 @@ class Orchestrator(BaseAgent):
 
     def __init__(self):
         super().__init__()
-        # Pipeline order is intentional - dependencies enforced by data
+        # Pipeline order is intentional. VoiceOver runs BEFORE Animation so
+        # the per-scene Ken Burns clip is sized to the actual narration audio
+        # length (VoiceOver writes the measured duration back into Scene),
+        # which is what gives us tight voice/visual sync at render time.
         self.pipeline = [
             ("Story", StoryAgent()),
             ("ScenePlanner", ScenePlannerAgent()),
             ("CharacterDesigner", CharacterDesignerAgent()),  # human approval here
             ("PromptEngineer", PromptEngineerAgent()),
             ("VisualGeneration", VisualGenerationAgent()),
-            ("Animation", AnimationAgent()),
             ("VoiceOver", VoiceOverAgent()),
+            ("Animation", AnimationAgent()),
             ("Music", MusicAgent()),
             ("Rendering", RenderingAgent()),
             ("FinalStitching", FinalStitchingAgent()),

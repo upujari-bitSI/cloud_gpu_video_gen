@@ -1,17 +1,28 @@
 """
 Character Designer Agent: creates character specs with HUMAN-IN-THE-LOOP approval.
 """
+import hashlib
 from agents.base import BaseAgent
 from tools.llm_client import get_llm
 from state import Character
 from config import config
 
 
+def _seed_for(name: str) -> int:
+    """Deterministic 32-bit seed derived from a character name. Same name ->
+    same seed -> same SDXL identity across every scene the character appears in."""
+    h = hashlib.sha256(name.strip().lower().encode()).hexdigest()
+    return int(h[:8], 16)
+
+
 class CharacterDesignerAgent(BaseAgent):
     name = "CharacterDesignerAgent"
 
-    SYSTEM = """You design memorable, visually distinctive characters for cinematic shorts.
-Each character must have a vivid description and a detailed visual prompt suitable for AI image generation."""
+    SYSTEM = """You design memorable, visually distinctive characters for short videos.
+Each character must have a vivid description and a detailed visual prompt suitable for AI image generation.
+The visual prompt MUST encode every identity-locking detail (age, hair color/style, eye color, skin tone,
+clothing colors, distinctive accessories). These will be re-used in every scene so the character looks
+identical across all shots — be precise and specific."""
 
     USER_TPL = """Story:
 Title: {title}
@@ -64,7 +75,24 @@ Update the character spec based on the feedback. Return the SAME JSON schema as 
         if isinstance(chars_data, dict) and "characters" in chars_data:
             chars_data = chars_data["characters"]
 
-        state.characters = [Character(**c) for c in chars_data]
+        # Prepend the active style's character template to every visual prompt
+        # so the whole cast shares one art style (cocomelon / anime / cinematic).
+        style_template = config.style().get("character_template", "")
+
+        state.characters = []
+        for c in chars_data:
+            visual = c.get("visual_prompt", "")
+            if style_template and style_template not in visual:
+                visual = f"{style_template}, {visual}"
+            char = Character(
+                name=c.get("name", "Unnamed"),
+                description=c.get("description", ""),
+                visual_prompt=visual,
+                personality=c.get("personality", ""),
+                role=c.get("role", "supporting"),
+                seed=_seed_for(c.get("name", "Unnamed")),
+            )
+            state.characters.append(char)
         self.logger.info(f"Designed {len(state.characters)} characters.")
 
         # Human-in-the-loop approval
@@ -130,6 +158,10 @@ Update the character spec based on the feedback. Return the SAME JSON schema as 
         )
         if isinstance(updated, list):
             updated = updated[0]
-        state.characters[idx] = Character(**{k: updated.get(k, getattr(original, k)) for k in
-            ["name", "description", "visual_prompt", "personality", "role"]})
+        kept = {k: updated.get(k, getattr(original, k)) for k in
+                ["name", "description", "visual_prompt", "personality", "role"]}
+        # Refining keeps the original seed unless the name actually changed,
+        # so the visual identity stays stable across re-renders.
+        kept["seed"] = original.seed if kept["name"] == original.name else _seed_for(kept["name"])
+        state.characters[idx] = Character(**kept)
         print(f"✓ Updated character {state.characters[idx].name}")
