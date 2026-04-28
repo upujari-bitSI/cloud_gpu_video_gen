@@ -17,6 +17,8 @@ class Character:
     personality: str = ""
     role: str = ""  # protagonist, antagonist, supporting
     approved: bool = False
+    # Stable per-character seed so SDXL renders the same face/outfit each scene.
+    seed: int = 0
 
 
 @dataclass
