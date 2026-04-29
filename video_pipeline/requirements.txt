@@ -15,20 +15,25 @@ anthropic>=0.40.0
 openai>=1.50.0
 python-dotenv>=1.0.0
 
-# ---- Image generation (SDXL via diffusers) --------------------------
+# ---- Image generation (Flux primary, SDXL fallback) -----------------
+# Flux.1 [schnell] requires diffusers>=0.30. The known-good Flux stack:
+#   diffusers 0.31.0 + transformers 4.45.2 + huggingface_hub 0.25.2.
+# SDXL still works under these versions for the fallback path.
 # Compatibility constraints learned the hard way:
 #   * diffusers <0.28 imports cached_download (removed in huggingface_hub>=0.26)
-#   * diffusers >=0.30 imports UMT5EncoderModel / AuraFlow (needs transformers 5+)
-#   * diffusers >=0.31 uses string-form forward refs in @custom_op (breaks torch <2.4)
-#   * transformers 5.x requires huggingface_hub>=1.5 (incompatible with diffusers 0.29)
+#   * diffusers >=0.32 has new attention_dispatch breaking on older torch
+#   * transformers 5.x requires huggingface_hub>=1.5 (TTS pulls this in if
+#     not pinned), so install order in setup.sh matters
 #   * torchvision must match torch ABI (upgrade together)
 torch==2.11.0
 torchvision==0.26.0
-diffusers==0.29.2
-huggingface_hub==0.36.2
-transformers==4.57.6
+diffusers==0.31.0
+huggingface_hub==0.25.2
+transformers==4.45.2
 accelerate==0.34.2
 safetensors>=0.4.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
 xformers; platform_system != "Darwin"
 
 # ---- TTS ------------------------------------------------------------

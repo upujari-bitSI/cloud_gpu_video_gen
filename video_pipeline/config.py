@@ -27,12 +27,16 @@ STYLE_PRESETS = {
             "clean smooth shading, bright cheerful daylight, plain uncluttered background, "
             "high detail, sharp focus, kid-friendly, octane render, ultra HD"
         ),
+        # Flux ignores negative prompts but we keep it populated for SDXL fallback.
         "negative": (
             "photorealistic, gritty, dark, scary, blood, weapon, low quality, "
             "blurry, deformed, extra limbs, text, watermark, signature, "
             "ugly, distorted face, asymmetric eyes, low contrast, grainy"
         ),
-        "model": "Lykon/dreamshaper-xl-v2-turbo",
+        # Flux.1 [schnell] - Apache 2.0, 4-step inference, much better prompt
+        # adherence and character consistency than SDXL Turbo. Override with
+        # SD_MODEL_ID env var to fall back to SDXL on machines <16GB VRAM.
+        "model": "black-forest-labs/FLUX.1-schnell",
         "character_template": (
             "3D pixar-style cartoon character, cocomelon style, large round head, "
             "big expressive eyes, soft rounded body, simple bright clothing, "

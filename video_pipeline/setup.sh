@@ -29,11 +29,13 @@ pip install -r "${REQ_FILE}"
 
 echo "==> Force-pinning critical versions in case a transitive dep upgraded them"
 pip install --force-reinstall --no-deps \
-    "transformers==4.57.6" \
-    "huggingface_hub==0.36.2" \
-    "diffusers==0.29.2" \
+    "transformers==4.45.2" \
+    "huggingface_hub==0.25.2" \
+    "diffusers==0.31.0" \
     "torch==2.11.0" \
-    "torchvision==0.26.0"
+    "torchvision==0.26.0" \
+    "sentencepiece>=0.2.0" \
+    "protobuf>=4.25.0"
 
 echo "==> Verifying imports"
 python - <<'PY'
@@ -54,10 +56,16 @@ for m in mods:
         print(f"  FAIL {m}: {e}")
 try:
     from diffusers import AutoPipelineForText2Image  # noqa
-    print("  ok   diffusers.AutoPipelineForText2Image")
+    print("  ok   diffusers.AutoPipelineForText2Image (SDXL fallback)")
 except Exception as e:
     fail.append(("diffusers.AutoPipelineForText2Image", e))
     print(f"  FAIL diffusers.AutoPipelineForText2Image: {e}")
+try:
+    from diffusers import FluxPipeline  # noqa
+    print("  ok   diffusers.FluxPipeline (primary)")
+except Exception as e:
+    fail.append(("diffusers.FluxPipeline", e))
+    print(f"  FAIL diffusers.FluxPipeline: {e}")
 try:
     from TTS.api import TTS  # noqa
     print("  ok   TTS.api (Coqui fallback)")
