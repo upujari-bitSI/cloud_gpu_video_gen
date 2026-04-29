@@ -30,6 +30,8 @@ async def main():
     parser.add_argument("--niche", required=True, help="Story niche/topic")
     parser.add_argument("--no-approval", action="store_true",
                         help="Skip the human approval step for characters")
+    parser.add_argument("--resume", action="store_true",
+                        help="Resume from outputs/state.json, skipping completed stages")
     args = parser.parse_args()
 
     if args.no_approval:
@@ -37,7 +39,7 @@ async def main():
 
     setup_logging()
     orchestrator = Orchestrator()
-    state = await orchestrator.run(args.niche)
+    state = await orchestrator.run(args.niche, resume=args.resume)
 
     print("\n" + "=" * 60)
     print("PIPELINE COMPLETE")
