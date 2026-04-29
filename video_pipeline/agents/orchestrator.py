@@ -42,12 +42,14 @@ class Orchestrator(BaseAgent):
 
     async def run(self, niche: str, resume: bool = False) -> PipelineState:
         """Run the full pipeline for a given niche."""
+        import time
+
         state_path = config.OUTPUT_DIR / "state.json"
         if resume and state_path.exists():
             state = PipelineState.load(state_path)
             self.logger.info(f"=== PIPELINE RESUME: '{state.niche}' ===")
         else:
-            state = PipelineState(niche=niche)
+            state = PipelineState(niche=niche, started_at=time.time())
             self.logger.info(f"=== PIPELINE START: '{niche}' ===")
 
         # Validate config and surface warnings up front
@@ -57,16 +59,26 @@ class Orchestrator(BaseAgent):
         for label, agent in self.pipeline:
             if resume and self._is_stage_complete(label, state):
                 self.logger.info(f"--- Skipping {label} (already complete) ---")
+                if label not in state.completed_stages:
+                    state.completed_stages.append(label)
+                state.current_stage = None
+                state.save(state_path)
                 continue
             self.logger.info(f"--- Running {label} ---")
+            state.current_stage = label
+            state.save(state_path)
             try:
                 state = await agent.run_with_retry(state)
-                # Persist intermediate state for resumability/debugging
+                if label not in state.completed_stages:
+                    state.completed_stages.append(label)
+                state.current_stage = None
                 state.save(state_path)
             except Exception as e:
                 self.logger.error(f"FATAL in {label}: {e}")
                 state.errors.append(f"{label}: {e}")
+                state.current_stage = None
                 state.save(config.OUTPUT_DIR / "state_error.json")
+                state.save(state_path)
                 raise
 
         self.logger.info(f"=== PIPELINE COMPLETE ===")

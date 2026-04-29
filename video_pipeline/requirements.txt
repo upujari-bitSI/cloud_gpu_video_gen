@@ -32,7 +32,11 @@ safetensors>=0.4.0
 xformers; platform_system != "Darwin"
 
 # ---- TTS ------------------------------------------------------------
-# Coqui TTS. ElevenLabs is optional (paid).
+# Kokoro-82M is the default narrator (open-weight, Apache 2.0, ~1GB VRAM,
+# much more natural than the original Tacotron2-DDC). Coqui kept as
+# fallback. ElevenLabs is optional (paid API).
+kokoro>=0.7.16
+soundfile>=0.12.0
 TTS>=0.22.0
 elevenlabs>=1.5.0
 

@@ -60,13 +60,24 @@ except Exception as e:
     print(f"  FAIL diffusers.AutoPipelineForText2Image: {e}")
 try:
     from TTS.api import TTS  # noqa
-    print("  ok   TTS.api")
+    print("  ok   TTS.api (Coqui fallback)")
 except Exception as e:
-    fail.append(("TTS.api", e))
-    print(f"  FAIL TTS.api: {e}")
+    print(f"  warn TTS.api missing: {e} (Coqui fallback unavailable)")
+try:
+    from kokoro import KPipeline  # noqa
+    print("  ok   kokoro (default narrator)")
+except Exception as e:
+    fail.append(("kokoro", e))
+    print(f"  FAIL kokoro: {e}")
+try:
+    import streamlit  # noqa
+    print(f"  ok   streamlit {streamlit.__version__}")
+except Exception as e:
+    print(f"  warn streamlit missing: {e} (dashboard unavailable)")
 sys.exit(1 if fail else 0)
 PY
 
 echo
-echo "==> Setup complete. Run the pipeline with:"
-echo "    python main.py --niche \"your topic here\" --no-approval"
+echo "==> Setup complete."
+echo "    CLI run:    python main.py --niche \"your topic\" --no-approval"
+echo "    Dashboard:  streamlit run streamlit_app.py"

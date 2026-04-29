@@ -61,9 +61,17 @@ class PipelineState:
     final_video_path: Optional[str] = None
     music_path: Optional[str] = None
     errors: list[str] = field(default_factory=list)
+    # Live progress fields written by the orchestrator before/after each stage,
+    # consumed by the Streamlit dashboard for real-time updates.
+    current_stage: Optional[str] = None  # name of stage currently running
+    completed_stages: list[str] = field(default_factory=list)
+    started_at: Optional[float] = None  # unix ts of pipeline start
+    updated_at: Optional[float] = None  # unix ts of last state.save()
 
     def save(self, path: str | Path):
         """Persist state to JSON for resuming or debugging."""
+        import time
+        self.updated_at = time.time()
         data = {
             "niche": self.niche,
             "story": asdict(self.story) if self.story else None,
@@ -72,6 +80,10 @@ class PipelineState:
             "final_video_path": self.final_video_path,
             "music_path": self.music_path,
             "errors": self.errors,
+            "current_stage": self.current_stage,
+            "completed_stages": self.completed_stages,
+            "started_at": self.started_at,
+            "updated_at": self.updated_at,
         }
         Path(path).write_text(json.dumps(data, indent=2))
 
@@ -86,4 +98,8 @@ class PipelineState:
         state.final_video_path = data.get("final_video_path")
         state.music_path = data.get("music_path")
         state.errors = data.get("errors", [])
+        state.current_stage = data.get("current_stage")
+        state.completed_stages = data.get("completed_stages", [])
+        state.started_at = data.get("started_at")
+        state.updated_at = data.get("updated_at")
         return state
