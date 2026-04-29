@@ -28,8 +28,13 @@ class ImageGenerator:
         try:
             import torch
             from diffusers import AutoPipelineForText2Image
-        except ImportError:
-            raise ImportError("Run: pip install torch diffusers transformers accelerate")
+        except ImportError as e:
+            raise ImportError(
+                f"Missing or incompatible dependency: {e}\n"
+                "Run: pip install 'torch>=2.1.0' 'diffusers>=0.27.0' 'transformers>=4.40.0' 'accelerate>=0.30.0'\n"
+                "If diffusers is already installed, a version conflict with huggingface_hub may exist — "
+                "run: pip install --upgrade 'diffusers>=0.27.0' 'huggingface_hub>=0.23.0'"
+            ) from e
 
         self._device = "cuda" if (config.USE_GPU and torch.cuda.is_available()) else "cpu"
         dtype = torch.float16 if self._device == "cuda" else torch.float32
