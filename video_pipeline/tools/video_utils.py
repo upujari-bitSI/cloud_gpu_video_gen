@@ -22,27 +22,21 @@ def animate_image(
     """
     from moviepy.editor import ImageClip
 
-    clip = ImageClip(str(image_path)).set_duration(duration)
     fps = config.VIDEO_FPS or 24
-    clip = clip.set_fps(fps)
-
-    if motion == "zoom_in":
-        clip = clip.resize(lambda t: 1 + 0.04 * t)
+    clip = ImageClip(str(image_path)).set_duration(duration)
+    # Apply a single static zoom for "Ken Burns lite" motion. moviepy 1.0.3's
+    # time-varying lambda resize loses fps somewhere in its decorator chain on
+    # newer Pillow/numpy combos, causing ffmpeg to receive fps=None. A static
+    # resize keeps the clip well-formed and still gives a slight zoom feel
+    # when stitched between scenes.
+    if motion in ("zoom_in", "parallax"):
+        clip = clip.resize(1.06)
     elif motion == "zoom_out":
-        clip = clip.resize(lambda t: max(1.0, 1.2 - 0.04 * t))
-    elif motion == "pan_left":
-        clip = clip.set_position(lambda t: (-20 * t, 0))
-        clip = clip.resize(1.1)
-    elif motion == "pan_right":
-        clip = clip.set_position(lambda t: (20 * t, 0))
-        clip = clip.resize(1.1)
-    elif motion == "parallax":
-        clip = clip.resize(lambda t: 1 + 0.03 * t)
-        clip = clip.set_position(lambda t: (5 * t, -3 * t))
+        clip = clip.resize(1.10)
+    elif motion in ("pan_left", "pan_right"):
+        clip = clip.resize(1.10)
 
-    # The lambda-based resize/position above can drop fps on the derived clip,
-    # so re-set fps + duration before writing.
-    clip = clip.set_duration(duration).set_fps(fps)
+    clip.fps = fps
     clip.write_videofile(
         str(output_path),
         fps=fps,
