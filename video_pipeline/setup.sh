@@ -33,9 +33,7 @@ pip install --force-reinstall --no-deps \
     "huggingface_hub==0.36.2" \
     "diffusers==0.29.2" \
     "torch==2.11.0" \
-    "torchvision==0.26.0" \
-    "Pillow==9.5.0" \
-    "moviepy==1.0.3"
+    "torchvision==0.26.0"
 
 echo "==> Verifying imports"
 python - <<'PY'
@@ -43,7 +41,7 @@ import importlib, sys
 mods = [
     "torch", "torchvision",
     "diffusers", "transformers", "huggingface_hub", "accelerate",
-    "moviepy.editor", "PIL", "imageio_ffmpeg",
+    "PIL", "imageio_ffmpeg",
     "anthropic",
 ]
 fail = []

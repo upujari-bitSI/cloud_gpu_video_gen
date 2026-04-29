@@ -37,13 +37,12 @@ TTS>=0.22.0
 elevenlabs>=1.5.0
 
 # ---- Video processing ----------------------------------------------
-# moviepy 1.0.3 still references PIL.Image.ANTIALIAS, removed in Pillow 10.
-# We mostly bypass moviepy's writer in tools/video_utils.py (uses ffmpeg
-# directly) but still keep moviepy importable for ImageClip / AudioFileClip.
-moviepy==1.0.3
-Pillow>=9.0.0,<10.0.0
-imageio>=2.34.0,<2.38.0
+# All media operations go through ffmpeg directly (subprocess + the binary
+# bundled by imageio-ffmpeg). moviepy was previously required but its
+# write path had an fps=None bug on this stack — we no longer import it.
+imageio>=2.34.0
 imageio-ffmpeg>=0.4.9
+Pillow>=9.0.0
 
 # ---- Utilities ------------------------------------------------------
 numpy>=1.24.0,<2.0.0
