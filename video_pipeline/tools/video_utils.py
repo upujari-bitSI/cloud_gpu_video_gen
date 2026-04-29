@@ -23,7 +23,8 @@ def animate_image(
     from moviepy.editor import ImageClip
 
     clip = ImageClip(str(image_path)).set_duration(duration)
-    clip = clip.set_fps(config.VIDEO_FPS)
+    fps = config.VIDEO_FPS or 24
+    clip = clip.set_fps(fps)
 
     if motion == "zoom_in":
         clip = clip.resize(lambda t: 1 + 0.04 * t)
@@ -39,10 +40,12 @@ def animate_image(
         clip = clip.resize(lambda t: 1 + 0.03 * t)
         clip = clip.set_position(lambda t: (5 * t, -3 * t))
 
-    clip = clip.set_duration(duration)
+    # The lambda-based resize/position above can drop fps on the derived clip,
+    # so re-set fps + duration before writing.
+    clip = clip.set_duration(duration).set_fps(fps)
     clip.write_videofile(
         str(output_path),
-        fps=config.VIDEO_FPS,
+        fps=fps,
         codec="libx264",
         audio=False,
         preset="medium",
