@@ -20,33 +20,21 @@ def animate_image(
     Convert a static image into a short clip with camera motion (Ken Burns).
     motion options: zoom_in, zoom_out, pan_left, pan_right, parallax.
     """
-    from moviepy.editor import ImageClip
-
+    # moviepy 1.0.3's write_videofile silently drops fps to None on this env
+    # (newer Pillow + decorator package), so we shell out to ffmpeg directly
+    # to turn a static image into a fixed-duration mp4 clip.
+    import subprocess
     fps = config.VIDEO_FPS or 24
-    clip = ImageClip(str(image_path)).set_duration(duration)
-    # Apply a single static zoom for "Ken Burns lite" motion. moviepy 1.0.3's
-    # time-varying lambda resize loses fps somewhere in its decorator chain on
-    # newer Pillow/numpy combos, causing ffmpeg to receive fps=None. A static
-    # resize keeps the clip well-formed and still gives a slight zoom feel
-    # when stitched between scenes.
-    if motion in ("zoom_in", "parallax"):
-        clip = clip.resize(1.06)
-    elif motion == "zoom_out":
-        clip = clip.resize(1.10)
-    elif motion in ("pan_left", "pan_right"):
-        clip = clip.resize(1.10)
-
-    clip.fps = fps
-    clip.write_videofile(
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-loop", "1", "-i", str(image_path),
+        "-c:v", "libx264", "-t", f"{duration:.3f}",
+        "-r", str(fps), "-pix_fmt", "yuv420p",
+        "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+        "-b:v", config.VIDEO_BITRATE, "-preset", "medium",
         str(output_path),
-        fps=fps,
-        codec="libx264",
-        audio=False,
-        preset="medium",
-        bitrate=config.VIDEO_BITRATE,
-        logger=None,
-    )
-    clip.close()
+    ]
+    subprocess.run(cmd, check=True)
     return output_path
 
 
