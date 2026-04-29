@@ -107,7 +107,12 @@ def get_tts() -> TTSEngine:
 
 
 def get_audio_duration(path: Path) -> float:
-    """Return audio length in seconds. Falls back to MoviePy if not a WAV."""
+    """Return audio length in seconds.
+
+    Fast path: read header for WAV files via the stdlib `wave` module.
+    Fallback: probe with ffmpeg (bundled by imageio_ffmpeg, no system install
+    needed) and parse the Duration line. Avoids pulling in moviepy here.
+    """
     p = Path(path)
     if p.suffix.lower() == ".wav":
         try:
@@ -117,10 +122,20 @@ def get_audio_duration(path: Path) -> float:
                 return frames / float(rate)
         except Exception:
             pass
-    # Fallback: pull duration via MoviePy (handles mp3/m4a/etc).
-    from moviepy.editor import AudioFileClip
-    clip = AudioFileClip(str(p))
-    try:
-        return float(clip.duration)
-    finally:
-        clip.close()
+
+    import subprocess
+    import imageio_ffmpeg
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    # ffmpeg writes media info to stderr even on the "null" probe.
+    result = subprocess.run(
+        [ffmpeg_bin, "-i", str(p), "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    for line in result.stderr.splitlines():
+        line = line.strip()
+        if line.startswith("Duration:"):
+            # "Duration: 00:00:11.58, start: ..."
+            ts = line.split(",", 1)[0].split("Duration:", 1)[1].strip()
+            h, m, s = ts.split(":")
+            return int(h) * 3600 + int(m) * 60 + float(s)
+    raise RuntimeError(f"Could not determine duration of {p}")

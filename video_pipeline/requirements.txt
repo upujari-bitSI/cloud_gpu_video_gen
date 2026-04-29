@@ -1,37 +1,53 @@
-# Core LLM
+# =====================================================================
+# AI Video Pipeline — pinned dependency set verified end-to-end on RunPod
+# (Linux + CUDA 13, Python 3.11, April 2026).
+#
+# IMPORTANT install order: see setup.sh in the repo root. TTS's deps will
+# pull in newer transformers/huggingface_hub if installed unconstrained,
+# which then breaks the pinned diffusers below. The setup.sh script
+# installs TTS first then pins the rest, OR you can run:
+#   pip install -r requirements.txt
+# which lets pip resolve all pins together in one pass.
+# =====================================================================
+
+# ---- Core LLM -------------------------------------------------------
 anthropic>=0.40.0
 openai>=1.50.0
 python-dotenv>=1.0.0
 
-# Image generation
-# Compatibility notes (verified working set on RunPod, April 2026):
-#   - diffusers 0.27.x imports cached_download (removed in huggingface_hub>=0.26)
-#   - diffusers >=0.30 imports UMT5EncoderModel/AuraFlow (needs newer transformers)
-#   - diffusers >=0.31 uses string-form forward refs in @custom_op (breaks torch <2.4)
-#   - transformers 5.x removed APIs that diffusers 0.28-0.30 rely on
-#   - torchvision must match installed torch ABI (upgrade together)
-torch>=2.4.0
-torchvision>=0.19.0
-diffusers>=0.28.0,<0.30.0
-huggingface_hub>=0.23.0,<2.0.0
-transformers>=4.40.0,<5.0.0
-accelerate>=0.30.0,<2.0.0
+# ---- Image generation (SDXL via diffusers) --------------------------
+# Compatibility constraints learned the hard way:
+#   * diffusers <0.28 imports cached_download (removed in huggingface_hub>=0.26)
+#   * diffusers >=0.30 imports UMT5EncoderModel / AuraFlow (needs transformers 5+)
+#   * diffusers >=0.31 uses string-form forward refs in @custom_op (breaks torch <2.4)
+#   * transformers 5.x requires huggingface_hub>=1.5 (incompatible with diffusers 0.29)
+#   * torchvision must match torch ABI (upgrade together)
+torch==2.11.0
+torchvision==0.26.0
+diffusers==0.29.2
+huggingface_hub==0.36.2
+transformers==4.57.6
+accelerate==0.34.2
 safetensors>=0.4.0
 xformers; platform_system != "Darwin"
 
-# Audio / TTS
+# ---- TTS ------------------------------------------------------------
+# Coqui TTS. ElevenLabs is optional (paid).
 TTS>=0.22.0
 elevenlabs>=1.5.0
 
-# Video processing
+# ---- Video processing ----------------------------------------------
+# moviepy 1.0.3 still references PIL.Image.ANTIALIAS, removed in Pillow 10.
+# We mostly bypass moviepy's writer in tools/video_utils.py (uses ffmpeg
+# directly) but still keep moviepy importable for ImageClip / AudioFileClip.
 moviepy==1.0.3
-imageio>=2.34.0
+Pillow>=9.0.0,<10.0.0
+imageio>=2.34.0,<2.38.0
 imageio-ffmpeg>=0.4.9
 
-# Utilities
-Pillow>=10.0.0
-numpy>=1.24.0
+# ---- Utilities ------------------------------------------------------
+numpy>=1.24.0,<2.0.0
 pydub>=0.25.0
 
-# Optional UI
+# ---- Optional UI ----------------------------------------------------
 streamlit>=1.32.0
