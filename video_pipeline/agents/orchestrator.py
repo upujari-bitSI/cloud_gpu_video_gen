@@ -75,6 +75,11 @@ class Orchestrator(BaseAgent):
 
     @staticmethod
     def _is_stage_complete(label: str, state: PipelineState) -> bool:
+        from pathlib import Path
+
+        def file_ok(p):
+            return p and Path(p).exists() and Path(p).stat().st_size > 0
+
         scenes = state.scenes
         if label == "Story":
             return state.story is not None
@@ -85,15 +90,15 @@ class Orchestrator(BaseAgent):
         if label == "PromptEngineer":
             return bool(scenes) and all(s.image_prompt for s in scenes)
         if label == "VisualGeneration":
-            return bool(scenes) and all(s.image_path for s in scenes)
+            return bool(scenes) and all(file_ok(s.image_path) for s in scenes)
         if label == "VoiceOver":
-            return bool(scenes) and all(s.voice_path for s in scenes)
+            return bool(scenes) and all(file_ok(s.voice_path) for s in scenes)
         if label == "Animation":
-            return bool(scenes) and all(s.clip_path for s in scenes)
+            return bool(scenes) and all(file_ok(s.clip_path) for s in scenes)
         if label == "Music":
             return state.music_path is not None
         if label == "Rendering":
-            return bool(scenes) and all(s.final_clip_path for s in scenes)
+            return bool(scenes) and all(file_ok(s.final_clip_path) for s in scenes)
         if label == "FinalStitching":
-            return state.final_video_path is not None
+            return file_ok(state.final_video_path)
         return False

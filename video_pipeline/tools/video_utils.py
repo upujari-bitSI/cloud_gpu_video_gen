@@ -58,11 +58,13 @@ def merge_audio_video(
     import subprocess
     import imageio_ffmpeg
     ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    fps = config.VIDEO_FPS or 24
     cmd = [
         ffmpeg_bin, "-y", "-loglevel", "error",
         "-i", str(video_path),
         "-i", str(audio_path),
-        "-c:v", "copy",
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-b:v", config.VIDEO_BITRATE, "-preset", "medium",
         "-c:a", "aac",
         "-shortest",
         str(output_path),
@@ -77,48 +79,60 @@ def stitch_clips(
     transition_duration: float = 0.5,
     music_path: Optional[Path] = None,
 ) -> Path:
-    """Concatenate multiple clips with crossfade transitions and optional bg music."""
-    from moviepy.editor import (
-        VideoFileClip, concatenate_videoclips,
-        AudioFileClip, CompositeAudioClip,
-    )
+    """Concatenate multiple clips end-to-end and optionally mix bg music.
 
-    clips = [VideoFileClip(str(p)) for p in clip_paths]
+    moviepy's write path is unreliable on this env (fps=None bug), so we
+    use ffmpeg's concat demuxer. Crossfades are not applied here — the
+    visual cuts are scene-synced to narration, which works fine without
+    transitions.
+    """
+    import subprocess
+    import imageio_ffmpeg
+    import tempfile
 
-    if transition_duration > 0 and len(clips) > 1:
-        for i in range(1, len(clips)):
-            clips[i] = clips[i].crossfadein(transition_duration)
-        final = concatenate_videoclips(clips, method="compose", padding=-transition_duration)
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    fps = config.VIDEO_FPS or 24
+
+    # Write a concat list for ffmpeg's demuxer.
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as f:
+        for p in clip_paths:
+            f.write(f"file '{Path(p).resolve()}'\n")
+        list_path = f.name
+
+    has_music = bool(music_path and Path(music_path).exists())
+    if has_music:
+        # Concat to a temp file first, then mix music in a second pass.
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+            concat_path = f.name
     else:
-        final = concatenate_videoclips(clips, method="compose")
+        concat_path = str(output_path)
 
-    # Mix background music underneath narration.
-    if music_path and Path(music_path).exists():
-        try:
-            music = AudioFileClip(str(music_path)).volumex(config.DEFAULT_MUSIC_VOLUME)
-            if music.duration < final.duration:
-                from moviepy.audio.fx.all import audio_loop
-                music = audio_loop(music, duration=final.duration)
-            else:
-                music = music.subclip(0, final.duration)
-            if final.audio is not None:
-                mixed = CompositeAudioClip([final.audio, music])
-            else:
-                mixed = music
-            final = final.set_audio(mixed)
-        except Exception as e:
-            logger.warning(f"Could not mix music: {e}")
+    concat_cmd = [
+        ffmpeg_bin, "-y", "-loglevel", "error",
+        "-f", "concat", "-safe", "0", "-i", list_path,
+        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-r", str(fps),
+        "-b:v", config.VIDEO_BITRATE, "-preset", "medium",
+        "-c:a", "aac",
+        concat_path,
+    ]
+    subprocess.run(concat_cmd, check=True)
 
-    final.write_videofile(
-        str(output_path),
-        fps=config.VIDEO_FPS,
-        codec="libx264",
-        audio_codec="aac",
-        preset="medium",
-        bitrate=config.VIDEO_BITRATE,
-        logger=None,
-    )
-    final.close()
-    for c in clips:
-        c.close()
+    if has_music:
+        mix_cmd = [
+            ffmpeg_bin, "-y", "-loglevel", "error",
+            "-i", concat_path,
+            "-stream_loop", "-1", "-i", str(music_path),
+            "-filter_complex",
+            f"[1:a]volume={config.DEFAULT_MUSIC_VOLUME}[bg];"
+            f"[0:a][bg]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+            "-map", "0:v", "-map", "[aout]",
+            "-c:v", "copy",
+            "-c:a", "aac",
+            "-shortest",
+            str(output_path),
+        ]
+        subprocess.run(mix_cmd, check=True)
+        Path(concat_path).unlink(missing_ok=True)
+
+    Path(list_path).unlink(missing_ok=True)
     return output_path
