@@ -62,36 +62,55 @@ Return JSON ONLY. Format:
             f"- {name}: {visual}" for name, visual in char_lookup.items()
         ) or "- (no named characters)"
 
+        # Batch in chunks to stay under the model's per-response output cap.
+        # Haiku-class models commonly cap at ~4096 output tokens, which truncates
+        # mid-JSON when 30+ verbose prompts are requested in one call.
+        BATCH_SIZE = 8
         llm = get_llm()
-        prompts = llm.complete_json(
-            system=self.SYSTEM,
-            user=self.USER_TPL.format(
-                style_suffix=style_suffix,
-                character_specs=character_specs,
-                scenes_json=json.dumps(scene_payload, indent=2),
-            ),
-            max_tokens=4096,
-            model=config.LLM_FAST_MODEL,
-        )
-        if isinstance(prompts, dict) and "prompts" in prompts:
-            prompts = prompts["prompts"]
-        if not isinstance(prompts, list) or len(prompts) != len(state.scenes):
-            self.logger.warning(
-                f"Prompt batch returned {len(prompts) if isinstance(prompts, list) else '?'} "
-                f"items for {len(state.scenes)} scenes; falling back to per-scene calls."
-            )
-            await self._per_scene_fallback(state, char_lookup, style_suffix)
-            return state
+        all_prompts: list = []
+        for start in range(0, len(scene_payload), BATCH_SIZE):
+            chunk = scene_payload[start : start + BATCH_SIZE]
+            try:
+                prompts = llm.complete_json(
+                    system=self.SYSTEM,
+                    user=self.USER_TPL.format(
+                        style_suffix=style_suffix,
+                        character_specs=character_specs,
+                        scenes_json=json.dumps(chunk, indent=2),
+                    ),
+                    max_tokens=4096,
+                    model=config.LLM_FAST_MODEL,
+                )
+            except Exception as e:
+                self.logger.warning(
+                    f"Batch {start}-{start+len(chunk)} failed ({e}); will use per-scene fallback for this chunk."
+                )
+                prompts = None
+            if isinstance(prompts, dict) and "prompts" in prompts:
+                prompts = prompts["prompts"]
+            if not isinstance(prompts, list) or len(prompts) != len(chunk):
+                self.logger.warning(
+                    f"Batch {start}-{start+len(chunk)} returned "
+                    f"{len(prompts) if isinstance(prompts, list) else '?'} items; falling back per-scene."
+                )
+                prompts = await self._per_scene_chunk(state.scenes[start : start + len(chunk)], char_lookup)
+            all_prompts.extend(prompts)
 
-        for scene, p in zip(state.scenes, prompts):
+        if len(all_prompts) != len(state.scenes):
+            raise ValueError(
+                f"Prompt count mismatch after batching: got {len(all_prompts)}, expected {len(state.scenes)}"
+            )
+
+        for scene, p in zip(state.scenes, all_prompts):
             scene.image_prompt = f"{p.strip()}, {style_suffix}"
             self.logger.info(f"Scene {scene.index}: {scene.image_prompt[:90]}...")
         return state
 
-    async def _per_scene_fallback(self, state, char_lookup, style_suffix):
-        """Used only if batched call fails — keeps the pipeline moving."""
+    async def _per_scene_chunk(self, scenes, char_lookup):
+        """Per-scene fallback — returns a list of raw prompt strings (no style suffix)."""
         llm = get_llm()
-        for scene in state.scenes:
+        out = []
+        for scene in scenes:
             char_visuals = "\n".join(
                 f"- {name}: {char_lookup.get(name, 'no visual spec')}"
                 for name in scene.characters
@@ -108,4 +127,5 @@ Return JSON ONLY. Format:
                 max_tokens=300,
                 model=config.LLM_FAST_MODEL,
             ).strip()
-            scene.image_prompt = f"{prompt_text}, {style_suffix}"
+            out.append(prompt_text)
+        return out
