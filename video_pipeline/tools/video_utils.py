@@ -24,9 +24,11 @@ def animate_image(
     # (newer Pillow + decorator package), so we shell out to ffmpeg directly
     # to turn a static image into a fixed-duration mp4 clip.
     import subprocess
+    import imageio_ffmpeg
     fps = config.VIDEO_FPS or 24
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
     cmd = [
-        "ffmpeg", "-y", "-loglevel", "error",
+        ffmpeg_bin, "-y", "-loglevel", "error",
         "-loop", "1", "-i", str(image_path),
         "-c:v", "libx264", "-t", f"{duration:.3f}",
         "-r", str(fps), "-pix_fmt", "yuv420p",
