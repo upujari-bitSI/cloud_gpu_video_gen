@@ -70,7 +70,7 @@ Return JSON ONLY. Format:
                 character_specs=character_specs,
                 scenes_json=json.dumps(scene_payload, indent=2),
             ),
-            max_tokens=4096,
+            max_tokens=16384,
             model=config.LLM_FAST_MODEL,
         )
         if isinstance(prompts, dict) and "prompts" in prompts:
