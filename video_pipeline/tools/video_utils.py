@@ -52,40 +52,22 @@ def merge_audio_video(
     narration mid-sentence. The animation agent already sized the clip to
     the audio length + buffer, but this is a safety net.
     """
-    from moviepy.editor import VideoFileClip, AudioFileClip
-    from moviepy.video.fx.all import freeze
-
-    video = VideoFileClip(str(video_path))
-    audio = AudioFileClip(str(audio_path))
-
-    if audio.duration > video.duration + 0.05:
-        # Extend the video by freezing the last frame to match audio length.
-        extra = audio.duration - video.duration
-        try:
-            video = freeze(video, t=video.duration - 0.05, freeze_duration=extra + 0.1)
-        except Exception:
-            # Fallback: clamp audio to video. Loud cut, but preserves the file.
-            audio = audio.subclip(0, video.duration)
-    elif video.duration > audio.duration + 0.05:
-        # Audio shorter than video — trim video to audio length so we never
-        # try to read past the end of the audio file (causes OSError at write).
-        video = video.subclip(0, audio.duration)
-
-    # Clamp to audio.duration so write_videofile never reads past the audio end.
-    duration = min(video.duration, audio.duration)
-    final = video.set_audio(audio).set_duration(duration)
-    final.write_videofile(
+    # Use ffmpeg directly — moviepy 1.0.3 write_videofile passes fps=None to
+    # the writer on this env. -shortest trims output to whichever stream ends
+    # first, which keeps audio/video in sync with no read-past-end errors.
+    import subprocess
+    import imageio_ffmpeg
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    cmd = [
+        ffmpeg_bin, "-y", "-loglevel", "error",
+        "-i", str(video_path),
+        "-i", str(audio_path),
+        "-c:v", "copy",
+        "-c:a", "aac",
+        "-shortest",
         str(output_path),
-        fps=config.VIDEO_FPS,
-        codec="libx264",
-        audio_codec="aac",
-        preset="medium",
-        bitrate=config.VIDEO_BITRATE,
-        logger=None,
-    )
-    final.close()
-    video.close()
-    audio.close()
+    ]
+    subprocess.run(cmd, check=True)
     return output_path
 
 
