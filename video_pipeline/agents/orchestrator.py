@@ -40,21 +40,29 @@ class Orchestrator(BaseAgent):
             ("FinalStitching", FinalStitchingAgent()),
         ]
 
-    async def run(self, niche: str) -> PipelineState:
+    async def run(self, niche: str, resume: bool = False) -> PipelineState:
         """Run the full pipeline for a given niche."""
-        state = PipelineState(niche=niche)
-        self.logger.info(f"=== PIPELINE START: '{niche}' ===")
+        state_path = config.OUTPUT_DIR / "state.json"
+        if resume and state_path.exists():
+            state = PipelineState.load(state_path)
+            self.logger.info(f"=== PIPELINE RESUME: '{state.niche}' ===")
+        else:
+            state = PipelineState(niche=niche)
+            self.logger.info(f"=== PIPELINE START: '{niche}' ===")
 
         # Validate config and surface warnings up front
         for w in config.validate():
             self.logger.warning(w)
 
         for label, agent in self.pipeline:
+            if resume and self._is_stage_complete(label, state):
+                self.logger.info(f"--- Skipping {label} (already complete) ---")
+                continue
             self.logger.info(f"--- Running {label} ---")
             try:
                 state = await agent.run_with_retry(state)
                 # Persist intermediate state for resumability/debugging
-                state.save(config.OUTPUT_DIR / "state.json")
+                state.save(state_path)
             except Exception as e:
                 self.logger.error(f"FATAL in {label}: {e}")
                 state.errors.append(f"{label}: {e}")
@@ -64,3 +72,28 @@ class Orchestrator(BaseAgent):
         self.logger.info(f"=== PIPELINE COMPLETE ===")
         self.logger.info(f"Final video: {state.final_video_path}")
         return state
+
+    @staticmethod
+    def _is_stage_complete(label: str, state: PipelineState) -> bool:
+        scenes = state.scenes
+        if label == "Story":
+            return state.story is not None
+        if label == "ScenePlanner":
+            return bool(scenes)
+        if label == "CharacterDesigner":
+            return bool(state.characters)
+        if label == "PromptEngineer":
+            return bool(scenes) and all(s.image_prompt for s in scenes)
+        if label == "VisualGeneration":
+            return bool(scenes) and all(s.image_path for s in scenes)
+        if label == "VoiceOver":
+            return bool(scenes) and all(s.voice_path for s in scenes)
+        if label == "Animation":
+            return bool(scenes) and all(s.clip_path for s in scenes)
+        if label == "Music":
+            return state.music_path is not None
+        if label == "Rendering":
+            return bool(scenes) and all(s.final_clip_path for s in scenes)
+        if label == "FinalStitching":
+            return state.final_video_path is not None
+        return False
