@@ -67,12 +67,12 @@ def merge_audio_video(
             # Fallback: clamp audio to video. Loud cut, but preserves the file.
             audio = audio.subclip(0, video.duration)
     elif video.duration > audio.duration + 0.05:
-        # Audio shorter than video — keep the visual, pad audio with silence
-        # by trimming video to audio + small tail (so the voice always ends
-        # cleanly inside the clip).
-        video = video.subclip(0, min(video.duration, audio.duration + config.VOICE_END_PAD))
+        # Audio shorter than video — trim video to audio length so we never
+        # try to read past the end of the audio file (causes OSError at write).
+        video = video.subclip(0, audio.duration)
 
-    duration = max(video.duration, audio.duration)
+    # Clamp to audio.duration so write_videofile never reads past the audio end.
+    duration = min(video.duration, audio.duration)
     final = video.set_audio(audio).set_duration(duration)
     final.write_videofile(
         str(output_path),
