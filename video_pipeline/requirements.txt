@@ -1,37 +1,61 @@
-# Core LLM
+# =====================================================================
+# AI Video Pipeline — pinned dependency set verified end-to-end on RunPod
+# (Linux + CUDA 13, Python 3.11, April 2026).
+#
+# IMPORTANT install order: see setup.sh in the repo root. TTS's deps will
+# pull in newer transformers/huggingface_hub if installed unconstrained,
+# which then breaks the pinned diffusers below. The setup.sh script
+# installs TTS first then pins the rest, OR you can run:
+#   pip install -r requirements.txt
+# which lets pip resolve all pins together in one pass.
+# =====================================================================
+
+# ---- Core LLM -------------------------------------------------------
 anthropic>=0.40.0
 openai>=1.50.0
 python-dotenv>=1.0.0
 
-# Image generation
-# Compatibility notes (verified working set on RunPod, April 2026):
-#   - diffusers 0.27.x imports cached_download (removed in huggingface_hub>=0.26)
-#   - diffusers >=0.30 imports UMT5EncoderModel/AuraFlow (needs newer transformers)
-#   - diffusers >=0.31 uses string-form forward refs in @custom_op (breaks torch <2.4)
-#   - transformers 5.x removed APIs that diffusers 0.28-0.30 rely on
-#   - torchvision must match installed torch ABI (upgrade together)
-torch>=2.4.0
-torchvision>=0.19.0
-diffusers>=0.28.0,<0.30.0
-huggingface_hub>=0.23.0,<2.0.0
-transformers>=4.40.0,<5.0.0
-accelerate>=0.30.0,<2.0.0
+# ---- Image generation (Flux primary, SDXL fallback) -----------------
+# Flux.1 [schnell] requires diffusers>=0.30. The known-good Flux stack:
+#   diffusers 0.31.0 + transformers 4.45.2 + huggingface_hub 0.25.2.
+# SDXL still works under these versions for the fallback path.
+# Compatibility constraints learned the hard way:
+#   * diffusers <0.28 imports cached_download (removed in huggingface_hub>=0.26)
+#   * diffusers >=0.32 has new attention_dispatch breaking on older torch
+#   * transformers 5.x requires huggingface_hub>=1.5 (TTS pulls this in if
+#     not pinned), so install order in setup.sh matters
+#   * torchvision must match torch ABI (upgrade together)
+torch==2.11.0
+torchvision==0.26.0
+diffusers==0.31.0
+huggingface_hub==0.25.2
+transformers==4.45.2
+accelerate==0.34.2
 safetensors>=0.4.0
+sentencepiece>=0.2.0
+protobuf>=4.25.0
 xformers; platform_system != "Darwin"
 
-# Audio / TTS
+# ---- TTS ------------------------------------------------------------
+# Kokoro-82M is the default narrator (open-weight, Apache 2.0, ~1GB VRAM,
+# much more natural than the original Tacotron2-DDC). Coqui kept as
+# fallback. ElevenLabs is optional (paid API).
+kokoro>=0.7.16
+soundfile>=0.12.0
 TTS>=0.22.0
 elevenlabs>=1.5.0
 
-# Video processing
-moviepy==1.0.3
+# ---- Video processing ----------------------------------------------
+# All media operations go through ffmpeg directly (subprocess + the binary
+# bundled by imageio-ffmpeg). moviepy was previously required but its
+# write path had an fps=None bug on this stack — we no longer import it.
 imageio>=2.34.0
 imageio-ffmpeg>=0.4.9
+Pillow>=9.0.0
 
-# Utilities
-Pillow>=10.0.0
-numpy>=1.24.0
+# ---- Utilities ------------------------------------------------------
+numpy>=1.24.0,<2.0.0
 pydub>=0.25.0
 
-# Optional UI
+# ---- Optional UI ----------------------------------------------------
 streamlit>=1.32.0

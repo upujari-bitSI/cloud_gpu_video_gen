@@ -1,10 +1,14 @@
 """
-Text-to-speech tool. Tries ElevenLabs first, falls back to Coqui TTS.
+Text-to-speech tool. Tries providers in priority order: kokoro -> elevenlabs
+-> coqui. Each is auto-skipped if its package isn't installed or its loader
+fails — pipeline never fails just because one TTS engine is missing.
 
-The cache key includes the text + emotion + provider, and the cached file
-keeps its native extension (.mp3 for ElevenLabs, .wav for Coqui) so a cache
-hit returns a path that actually exists. The downstream merge_audio_video
-in tools/video_utils.py accepts either format.
+Provider selection is via config.TTS_PROVIDER. "kokoro" is the default
+(82M-param open-weight model, runs comfortably on CPU or any GPU, much more
+natural than the original Tacotron2-DDC).
+
+Cache key includes provider so swapping engines mid-project doesn't reuse
+the previous engine's audio.
 """
 import logging
 import hashlib
@@ -23,24 +27,26 @@ class TTSEngine:
     def __init__(self):
         self._coqui = None
         self._elevenlabs = None
+        self._kokoro = None  # KPipeline instance
+
+    def _load_kokoro(self):
+        if self._kokoro is not None:
+            return
+        from kokoro import KPipeline  # raises ImportError if not installed
+        logger.info(f"Loading Kokoro TTS (lang={config.KOKORO_LANG_CODE}, voice={config.KOKORO_VOICE})")
+        self._kokoro = KPipeline(lang_code=config.KOKORO_LANG_CODE)
 
     def _load_coqui(self):
         if self._coqui is not None:
             return
-        try:
-            from TTS.api import TTS
-        except ImportError:
-            raise ImportError("Run: pip install TTS")
+        from TTS.api import TTS  # raises ImportError if not installed
         logger.info(f"Loading Coqui TTS: {config.COQUI_MODEL}")
         self._coqui = TTS(config.COQUI_MODEL, progress_bar=False)
 
     def _load_elevenlabs(self):
         if self._elevenlabs is not None:
             return
-        try:
-            from elevenlabs.client import ElevenLabs
-        except ImportError:
-            raise ImportError("Run: pip install elevenlabs")
+        from elevenlabs.client import ElevenLabs
         self._elevenlabs = ElevenLabs(api_key=config.ELEVENLABS_API_KEY)
 
     def synthesize(
@@ -51,28 +57,73 @@ class TTSEngine:
         cache: bool = True,
     ) -> Path:
         """Generate speech audio and return the file path."""
-        # Pick the provider up front so the cache key matches the file extension.
-        provider = config.TTS_PROVIDER
-        use_eleven = provider == "elevenlabs" and config.ELEVENLABS_API_KEY
-        ext = "mp3" if use_eleven else "wav"
+        provider = (config.TTS_PROVIDER or "kokoro").lower()
 
+        # Cache key encodes provider + voice + text so changing provider
+        # forces regeneration rather than returning a stale clip.
+        voice_key = config.KOKORO_VOICE if provider == "kokoro" else provider
+        key = hashlib.sha256(
+            f"{provider}|{voice_key}|{text}|{emotion}".encode()
+        ).hexdigest()[:16]
+        cache_path = config.CACHE_DIR / f"tts_{key}.wav"
+        if cache and cache_path.exists():
+            logger.info(f"TTS cache hit: {cache_path.name}")
+            return cache_path
         if cache:
-            key = hashlib.sha256(f"{provider}|{text}|{emotion}".encode()).hexdigest()[:16]
-            cache_path = config.CACHE_DIR / f"tts_{key}.{ext}"
-            if cache_path.exists():
-                logger.info(f"TTS cache hit: {cache_path.name}")
-                return cache_path
             output_path = cache_path
 
-        if use_eleven:
+        # Try the requested provider first, then fall through to alternatives.
+        order = {
+            "kokoro": ["kokoro", "elevenlabs", "coqui"],
+            "elevenlabs": ["elevenlabs", "kokoro", "coqui"],
+            "coqui": ["coqui", "kokoro"],
+        }.get(provider, ["kokoro", "coqui"])
+
+        last_err: Optional[Exception] = None
+        for prov in order:
+            if prov == "elevenlabs" and not config.ELEVENLABS_API_KEY:
+                continue
             try:
-                return self._synth_elevenlabs(text, output_path)
+                if prov == "kokoro":
+                    return self._synth_kokoro(text, output_path)
+                if prov == "elevenlabs":
+                    return self._synth_elevenlabs(text, output_path.with_suffix(".mp3"))
+                if prov == "coqui":
+                    return self._synth_coqui(text, output_path.with_suffix(".wav"))
             except Exception as e:
-                logger.warning(f"ElevenLabs failed ({e}), falling back to Coqui.")
-                # Coqui produces .wav — adjust path so the file exists at the
-                # extension we return.
-                return self._synth_coqui(text, output_path.with_suffix(".wav"))
-        return self._synth_coqui(text, output_path)
+                logger.warning(f"TTS provider '{prov}' failed: {e}")
+                last_err = e
+                continue
+        raise RuntimeError(f"All TTS providers failed; last error: {last_err}")
+
+    def _synth_kokoro(self, text: str, output_path: Path) -> Path:
+        """Kokoro-82M synthesis. Returns a single concatenated WAV.
+
+        Kokoro yields per-sentence chunks; we concatenate them into one
+        clip so the rest of the pipeline (which assumes one file per scene)
+        works unchanged.
+        """
+        self._load_kokoro()
+        import numpy as np
+        import soundfile as sf
+
+        chunks = []
+        for _, _, audio in self._kokoro(
+            text,
+            voice=config.KOKORO_VOICE,
+            speed=config.KOKORO_SPEED,
+        ):
+            # Audio comes back as a torch tensor in current Kokoro releases.
+            if hasattr(audio, "detach"):
+                audio = audio.detach().cpu().numpy()
+            chunks.append(np.asarray(audio, dtype=np.float32))
+        if not chunks:
+            raise RuntimeError("Kokoro produced no audio")
+        wav = np.concatenate(chunks)
+        wav_path = output_path.with_suffix(".wav")
+        sf.write(str(wav_path), wav, 24000)  # Kokoro outputs 24 kHz
+        logger.info(f"Kokoro audio saved: {wav_path.name}")
+        return wav_path
 
     def _synth_elevenlabs(self, text: str, output_path: Path) -> Path:
         self._load_elevenlabs()
@@ -107,7 +158,12 @@ def get_tts() -> TTSEngine:
 
 
 def get_audio_duration(path: Path) -> float:
-    """Return audio length in seconds. Falls back to MoviePy if not a WAV."""
+    """Return audio length in seconds.
+
+    Fast path: read header for WAV files via the stdlib `wave` module.
+    Fallback: probe with ffmpeg (bundled by imageio_ffmpeg, no system install
+    needed) and parse the Duration line. Avoids pulling in moviepy here.
+    """
     p = Path(path)
     if p.suffix.lower() == ".wav":
         try:
@@ -117,10 +173,20 @@ def get_audio_duration(path: Path) -> float:
                 return frames / float(rate)
         except Exception:
             pass
-    # Fallback: pull duration via MoviePy (handles mp3/m4a/etc).
-    from moviepy.editor import AudioFileClip
-    clip = AudioFileClip(str(p))
-    try:
-        return float(clip.duration)
-    finally:
-        clip.close()
+
+    import subprocess
+    import imageio_ffmpeg
+    ffmpeg_bin = imageio_ffmpeg.get_ffmpeg_exe()
+    # ffmpeg writes media info to stderr even on the "null" probe.
+    result = subprocess.run(
+        [ffmpeg_bin, "-i", str(p), "-f", "null", "-"],
+        capture_output=True, text=True,
+    )
+    for line in result.stderr.splitlines():
+        line = line.strip()
+        if line.startswith("Duration:"):
+            # "Duration: 00:00:11.58, start: ..."
+            ts = line.split(",", 1)[0].split("Duration:", 1)[1].strip()
+            h, m, s = ts.split(":")
+            return int(h) * 3600 + int(m) * 60 + float(s)
+    raise RuntimeError(f"Could not determine duration of {p}")

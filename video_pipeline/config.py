@@ -27,12 +27,16 @@ STYLE_PRESETS = {
             "clean smooth shading, bright cheerful daylight, plain uncluttered background, "
             "high detail, sharp focus, kid-friendly, octane render, ultra HD"
         ),
+        # Flux ignores negative prompts but we keep it populated for SDXL fallback.
         "negative": (
             "photorealistic, gritty, dark, scary, blood, weapon, low quality, "
             "blurry, deformed, extra limbs, text, watermark, signature, "
             "ugly, distorted face, asymmetric eyes, low contrast, grainy"
         ),
-        "model": "Lykon/dreamshaper-xl-v2-turbo",
+        # Flux.1 [schnell] - Apache 2.0, 4-step inference, much better prompt
+        # adherence and character consistency than SDXL Turbo. Override with
+        # SD_MODEL_ID env var to fall back to SDXL on machines <16GB VRAM.
+        "model": "black-forest-labs/FLUX.1-schnell",
         "character_template": (
             "3D pixar-style cartoon character, cocomelon style, large round head, "
             "big expressive eyes, soft rounded body, simple bright clothing, "
@@ -104,10 +108,17 @@ class PipelineConfig:
     PIKA_API_KEY: Optional[str] = os.getenv("PIKA_API_KEY")
 
     # ---- TTS / Voice ----
-    TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "coqui")  # "elevenlabs" or "coqui"
+    # Provider: "kokoro" (recommended, open-weight 82M) | "elevenlabs" | "coqui"
+    TTS_PROVIDER: str = os.getenv("TTS_PROVIDER", "kokoro")
     ELEVENLABS_API_KEY: Optional[str] = os.getenv("ELEVENLABS_API_KEY")
     ELEVENLABS_VOICE_ID: str = os.getenv("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")
     COQUI_MODEL: str = "tts_models/en/ljspeech/tacotron2-DDC"
+    # Kokoro voices: af_heart, af_bella, af_nicole, am_adam, am_michael,
+    # bf_emma, bf_isabella, bm_george, bm_lewis (a*=American, b*=British,
+    # f*=female, m*=male). af_heart is the default narrator-style voice.
+    KOKORO_VOICE: str = os.getenv("KOKORO_VOICE", "af_heart")
+    KOKORO_LANG_CODE: str = os.getenv("KOKORO_LANG_CODE", "a")  # 'a'=Am-En, 'b'=Br-En
+    KOKORO_SPEED: float = float(os.getenv("KOKORO_SPEED", "1.0"))
 
     # ---- Music ----
     MUSIC_LIBRARY_DIR: Path = Path("assets/music")  # royalty-free .mp3 files
@@ -138,6 +149,7 @@ class PipelineConfig:
     PROJECT_FOLDERS: list = field(default_factory=lambda: [
         "outputs", "outputs/.cache", "outputs/scenes",
         "outputs/voice", "outputs/clips", "outputs/final",
+        "outputs/characters",
         "assets/music", "assets/characters",
     ])
 

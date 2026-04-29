@@ -1,6 +1,7 @@
 """
 Video utilities: animate static images, merge audio+video, stitch clips.
-Uses MoviePy.
+All operations shell out to ffmpeg via the binary bundled by
+imageio-ffmpeg, so no system ffmpeg install is needed.
 """
 import logging
 from pathlib import Path
