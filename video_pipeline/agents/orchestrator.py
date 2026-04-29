@@ -7,6 +7,7 @@ from agents.base import BaseAgent
 from agents.story_agent import StoryAgent
 from agents.scene_planner_agent import ScenePlannerAgent
 from agents.character_designer_agent import CharacterDesignerAgent
+from agents.character_portrait_agent import CharacterPortraitAgent
 from agents.prompt_engineer_agent import PromptEngineerAgent
 from agents.visual_generation_agent import VisualGenerationAgent
 from agents.animation_agent import AnimationAgent
@@ -31,6 +32,9 @@ class Orchestrator(BaseAgent):
             ("Story", StoryAgent()),
             ("ScenePlanner", ScenePlannerAgent()),
             ("CharacterDesigner", CharacterDesignerAgent()),  # human approval here
+            # CharacterPortrait runs early so a bad character look surfaces in the
+            # dashboard before we commit time to 30+ scene generations.
+            ("CharacterPortrait", CharacterPortraitAgent()),
             ("PromptEngineer", PromptEngineerAgent()),
             ("VisualGeneration", VisualGenerationAgent()),
             ("VoiceOver", VoiceOverAgent()),
@@ -99,6 +103,13 @@ class Orchestrator(BaseAgent):
             return bool(scenes)
         if label == "CharacterDesigner":
             return bool(state.characters)
+        if label == "CharacterPortrait":
+            # Portraits are non-fatal — count this stage as complete if every
+            # character either has a portrait file on disk or has been retried
+            # at least once (state was saved after the agent ran).
+            return bool(state.characters) and all(
+                file_ok(c.portrait_path) for c in state.characters
+            )
         if label == "PromptEngineer":
             return bool(scenes) and all(s.image_prompt for s in scenes)
         if label == "VisualGeneration":

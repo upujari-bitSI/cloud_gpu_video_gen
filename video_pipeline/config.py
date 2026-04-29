@@ -149,6 +149,7 @@ class PipelineConfig:
     PROJECT_FOLDERS: list = field(default_factory=lambda: [
         "outputs", "outputs/.cache", "outputs/scenes",
         "outputs/voice", "outputs/clips", "outputs/final",
+        "outputs/characters",
         "assets/music", "assets/characters",
     ])
 

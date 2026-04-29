@@ -17,8 +17,11 @@ class Character:
     personality: str = ""
     role: str = ""  # protagonist, antagonist, supporting
     approved: bool = False
-    # Stable per-character seed so SDXL renders the same face/outfit each scene.
+    # Stable per-character seed so the model renders the same face/outfit each scene.
     seed: int = 0
+    # Reference portrait generated once after design, reused for downstream
+    # face-locking (PuLID/IP-Adapter) and shown in the dashboard for QA.
+    portrait_path: Optional[str] = None
 
 
 @dataclass

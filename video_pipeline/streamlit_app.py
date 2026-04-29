@@ -39,6 +39,7 @@ STAGES = [
     "Story",
     "ScenePlanner",
     "CharacterDesigner",
+    "CharacterPortrait",
     "PromptEngineer",
     "VisualGeneration",
     "VoiceOver",
@@ -238,11 +239,21 @@ with tab_chars:
     if not chars:
         st.info("No characters yet.")
     for c in chars:
-        with st.expander(f"{c.get('name','?')} — {c.get('role','')}", expanded=False):
-            st.markdown(f"**Description:** {c.get('description','')}")
-            st.markdown(f"**Personality:** {c.get('personality','')}")
-            st.markdown(f"**Visual prompt:** `{c.get('visual_prompt','')}`")
-            st.caption(f"Seed: {c.get('seed','-')}")
+        with st.expander(
+            f"{c.get('name','?')} — {c.get('role','')}", expanded=True
+        ):
+            cols = st.columns([1, 2])
+            with cols[0]:
+                portrait = c.get("portrait_path")
+                if portrait and Path(ROOT / portrait).exists():
+                    st.image(str(ROOT / portrait), use_container_width=True)
+                else:
+                    st.caption("(portrait pending)")
+            with cols[1]:
+                st.markdown(f"**Description:** {c.get('description','')}")
+                st.markdown(f"**Personality:** {c.get('personality','')}")
+                st.markdown(f"**Visual prompt:** `{c.get('visual_prompt','')}`")
+                st.caption(f"Seed: {c.get('seed','-')}")
 
 with tab_scenes:
     scenes = state.get("scenes") or []
