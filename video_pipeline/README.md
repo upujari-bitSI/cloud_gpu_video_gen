@@ -125,10 +125,10 @@ Pipeline output:
 
 This pipeline needs a GPU for SDXL image generation. CPU works but is ~50× slower.
 
-The defaults (in `config.py`) are tuned for an **8 GB VRAM** GPU using
-DreamShaper-XL Turbo (4–8 inference steps), CPU offload, and 1280×720 output.
-Set `LOW_VRAM_MODE=false` and bump `IMAGE_WIDTH/HEIGHT` to 1920×1080 if you
-have ≥16 GB.
+The defaults (in `config.py`) are tuned for **RTX 4090 (24 GB) on RunPod
+Community**: DreamShaper-XL Turbo at 8 steps, full HD 1920×1080, no CPU
+offload. If you're on a smaller card, set `LOW_VRAM_MODE=true` and drop
+`IMAGE_WIDTH/HEIGHT` to 1280×720.
 
 ### Cheapest providers (snapshot — always check live prices)
 
@@ -145,18 +145,28 @@ marketplaces. The closest equivalents you'll actually find listed are:
 - **RTX A4000 16 GB** on RunPod (~$0.20/hr) — most reliable cheap option
 - **RTX 4060 Ti 16 GB** on Vast.ai (~$0.20/hr) — when available
 
-### My recommendation: RunPod RTX A4000 (16 GB) at ~$0.20/hr
+### Recommended: RunPod Community RTX 4090 (24 GB) at ~$0.34/hr
 
-For this pipeline, **RunPod Community RTX A4000 (16 GB)** at ~$0.20/hr is the
-sweet spot: enough VRAM to run SDXL at 1280×720 with no offload (faster
-inference), pre-built PyTorch templates, persistent volumes for the SDXL
-weights, per-second billing.
+This is the configuration the defaults are tuned for. With 24 GB you can
+run SDXL at 1920×1080 with no CPU offload (~1.5 s/image on DreamShaper-XL
+Turbo), pre-built PyTorch templates, and persistent volumes that survive
+across sessions so the 6 GB SDXL weights download exactly once.
+
+**Estimated wall-clock for a 5-minute / 30-scene video on 4090:**
+| Stage | Time |
+|---|---|
+| Story + scene + character LLM calls | 30–60 s |
+| PromptEngineer (one batched Haiku call) | ~5 s |
+| SDXL image generation (30 × ~1.5 s) | ~1 min |
+| Voice-over (Coqui, ~30 × 2 s) | ~1 min |
+| Animation + render + stitch (MoviePy on CPU) | 4–7 min |
+| **Total** | **6–10 min** → ~$0.04 of GPU time |
 
 Cheaper alternatives if you want to squeeze more:
-- **Vast.ai RTX 3060 12 GB at ~$0.10/hr** with `LOW_VRAM_MODE=true` (default).
-  Slightly slower per image but ~half the cost. Spot-priced instances on
-  Vast.ai dip to $0.06/hr.
-- **TensorDock RTX A4000 spot** at ~$0.15/hr — second-cheapest reliable option.
+- **Vast.ai RTX 4090 spot** at ~$0.20/hr — 40% cheaper, same speed, can be reclaimed.
+- **RunPod RTX A4000 (16 GB) at ~$0.20/hr** — slightly slower (~3s/image), same workflow.
+- **Vast.ai RTX 3060 12 GB at ~$0.10/hr** with `LOW_VRAM_MODE=true` — half the cost,
+  half the speed.
 
 Avoid AWS/GCP/Azure for this — they charge 5–10× more for equivalent GPUs.
 
@@ -172,30 +182,40 @@ Claude API dominates the cost — most of the savings come from prompt caching
 and using Sonnet/Haiku (already on by default). The GPU bill is rounding
 error if you spin the pod down between runs.
 
-### Quick start on RunPod
+### Quick start on RunPod (RTX 4090)
 
 ```bash
 # 1. RunPod: deploy a Pod
 #    Template: "RunPod PyTorch 2.4"
-#    GPU: RTX A4000 (16 GB) — Community Cloud, ~$0.20/hr
+#    GPU: RTX 4090 (24 GB) — Community Cloud, ~$0.34/hr
 #    Volume: 50 GB persistent (for HF model cache)
+#    Disk: 30 GB container
 
 # 2. Web terminal:
 git clone <your-repo> && cd video_pipeline
 apt-get update && apt-get install -y ffmpeg
 pip install -r requirements.txt
 
-# 3. Env
+# 3. Cache HF downloads on the persistent volume so reboots don't redownload.
+export HF_HOME=/workspace/hf_cache
+
+# 4. Env (most are already the defaults — set only what you want to change)
 export ANTHROPIC_API_KEY=sk-ant-...
 export USE_GPU=true
 export STYLE_PRESET=cocomelon            # cocomelon | cinematic | anime
 export TARGET_DURATION_SECONDS=300       # 5-minute video
-export LOW_VRAM_MODE=true                # leave true for ≤16 GB GPUs
-# export LLM_MODEL=claude-sonnet-4-6     # default; opus is overkill
-# export LLM_FAST_MODEL=claude-haiku-4-5-20251001   # for prompt-eng
+# Defaults below are already set for the 4090 — listed for clarity:
+# export LOW_VRAM_MODE=false             # 24 GB has plenty of headroom
+# export IMAGE_WIDTH=1920
+# export IMAGE_HEIGHT=1080
+# export NUM_INFERENCE_STEPS=8
+# export LLM_MODEL=claude-sonnet-4-6
+# export LLM_FAST_MODEL=claude-haiku-4-5-20251001
 
-# 4. Run
+# 5. Run
 python main.py --niche "a curious bunny who learns to share" --no-approval
+
+# Final MP4 lands in outputs/final/<title>_final.mp4
 ```
 
 ### Cost-saving tips

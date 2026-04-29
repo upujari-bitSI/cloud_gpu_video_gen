@@ -89,13 +89,15 @@ class PipelineConfig:
     # SD_MODEL_ID can be overridden; otherwise the preset's default model is used.
     SD_MODEL_ID: Optional[str] = os.getenv("SD_MODEL_ID") or None
     USE_GPU: bool = os.getenv("USE_GPU", "true").lower() == "true"
-    # Low-VRAM mode for 8 GB GPUs (RTX 4060 / 3060 / 2080). Enables CPU offload,
-    # VAE tiling, smaller resolution and fewer steps.
-    LOW_VRAM_MODE: bool = os.getenv("LOW_VRAM_MODE", "true").lower() == "true"
-    # 1280x720 fits comfortably in 8 GB; render is upscaled in moviepy if needed.
-    IMAGE_WIDTH: int = int(os.getenv("IMAGE_WIDTH", "1280"))
-    IMAGE_HEIGHT: int = int(os.getenv("IMAGE_HEIGHT", "720"))
-    # DreamShaper-XL Turbo / SDXL-Turbo work in 4-8 steps; vanilla SDXL needs ~25.
+    # Low-VRAM mode for ≤12 GB GPUs. Off by default — RTX 4090 (24 GB) and
+    # other ≥16 GB cards run faster without CPU offload.
+    LOW_VRAM_MODE: bool = os.getenv("LOW_VRAM_MODE", "false").lower() == "true"
+    # Full HD by default. The 4090 handles 1920x1080 SDXL with ease (~12 GB
+    # peak); drop to 1280x720 if you're on a smaller card.
+    IMAGE_WIDTH: int = int(os.getenv("IMAGE_WIDTH", "1920"))
+    IMAGE_HEIGHT: int = int(os.getenv("IMAGE_HEIGHT", "1080"))
+    # DreamShaper-XL Turbo / SDXL-Turbo plateau in quality at ~8 steps;
+    # bump to 25-30 if you swap to vanilla SDXL.
     NUM_INFERENCE_STEPS: int = int(os.getenv("NUM_INFERENCE_STEPS", "8"))
     GUIDANCE_SCALE: float = float(os.getenv("GUIDANCE_SCALE", "2.0"))
 
